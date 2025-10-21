@@ -1,45 +1,70 @@
-async function exploreTodoData() {
+// It's a good practice to keep your API URL in a constant
+// If it changes, you only need to update it in one place
+const API_URL = 'https://jsonplaceholder.typicode.com/todos';
+
+// Separate data fetching logic from UI logic
+async function fetchTodos() {
     try {
-        // Fetch todos from the API
-        const response = await fetch('https://jsonplaceholder.typicode.com/todos');
+        const response = await fetch(API_URL);
+
+        // Always check if the response is ok
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
         const todos = await response.json();
-
-        // Let's look at all our data in the console
-        console.log('All todos:', todos);
-
-        // Let's look at just one todo to understand its structure
-        console.log('Example of a single todo:', todos[0]);
-
-        // Let's see how many todos we got
-        console.log('Number of todos:', todos.length);
-
-        // What properties does each todo have?
-        const sampleTodo = todos[0];
-        console.log('Properties in a todo:', Object.keys(sampleTodo));
-
-        // Let's see some statistics
-        const completedTodos = todos.filter(todo => todo.completed).length;
-        console.log('Number of completed todos:', completedTodos);
-        console.log('Number of incomplete todos:', todos.length - completedTodos);
-
-        // Display first few todos in a simple format
-        displaySimpleTodoList(todos.slice(0, 10));
-
+        return todos.slice(0, 10);  // Let's still work with just 10 items for now
     } catch (error) {
         console.error('Failed to fetch todos:', error);
+        return [];  // Return empty array on error - this is a good practice
     }
 }
 
-function displaySimpleTodoList(todos) {
-    const root = document.getElementById('root');
-    root.innerHTML = '<h2>First 10 Todos:</h2>';
+// This reusable function will create a todo item element
+// By making this a separate function:
+// 1. We can reuse it whenever we need to create a todo item
+// 2. If we need to change how todos look, we only change it here
+// 3. The code is more organized and easier to maintain
+function createTodoElement(todo) {
+    const todoElement = document.createElement('div');
+    todoElement.className = `todo-item ${todo.completed ? 'completed' : ''}`;
+    todoElement.id = `todo-${todo.id}`;  // Giving each todo a unique ID is good practice
 
+    // Using template literals for cleaner string concatenation
+    todoElement.innerHTML = `
+        <span class="todo-text">${todo.title}</span>
+        <span class="todo-status">${todo.completed ? '✓' : '○'}</span>
+    `;
+
+    return todoElement;
+}
+
+// Separate function to render the todo list
+// This separation of concerns makes our code more maintainable
+function renderTodoList(todos) {
+    const todoList = document.getElementById('todoList');
+
+    // Clear existing todos - good practice to prevent duplicates
+    todoList.innerHTML = '';
+
+    // If we have no todos, show a message
+    if (todos.length === 0) {
+        todoList.innerHTML = '<p>No todos found.</p>';
+        return;
+    }
+
+    // Create and append each todo element
     todos.forEach(todo => {
-        const todoElement = document.createElement('div');
-        todoElement.textContent = `• ${todo.title} (${todo.completed ? 'Completed' : 'Pending'})`;
-        root.appendChild(todoElement);
+        const todoElement = createTodoElement(todo);
+        todoList.appendChild(todoElement);
     });
 }
 
-// Run our exploration
-exploreTodoData();
+// Initialize our app
+async function initializeApp() {
+    const todos = await fetchTodos();
+    renderTodoList(todos);
+}
+
+// Wait for the DOM to be ready before running our code
+document.addEventListener('DOMContentLoaded', initializeApp);
