@@ -1,178 +1,274 @@
 const API_URL = 'https://jsonplaceholder.typicode.com/todos';
-
-// It's good practice to keep track of our todos in a single place
-// This is a basic form of state management. State is basically the current state of your program (the data it holds, the user that is authenticated etc.) in any given time. In our case, it will be our todo data.
+const STORAGE_KEY = 'todos-app';
+let currentFilter = 'all';
 let todoState = [];
 
-async function fetchTodos() {
-    try {
-        const response = await fetch(API_URL);
 
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
+function saveToLocalStorage() {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(todoState));
+}
+
+function loadFromLocalStorage() {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    return stored ? JSON.parse(stored) : [];
+}
+
+function showLoading() {
+    document.getElementById('loadingMessage').style.display = 'block';
+    document.getElementById('errorMessage').style.display = 'none';
+}
+
+function hideLoading() {
+    document.getElementById('loadingMessage').style.display = 'none';
+}
+
+function showError(message) {
+    const errorElement = document.getElementById('errorMessage');
+    errorElement.textContent = message;
+    errorElement.style.display = 'block';
+    setTimeout(() => {
+        errorElement.style.display = 'none';
+    }, 3000);
+}
+
+
+async function fetchTodos() {
+    showLoading();
+    try {
+        // Load from localStorage first
+        let todos = loadFromLocalStorage();
+
+        if (todos.length === 0) {
+            const response = await fetch(API_URL);
+            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+
+            todos = await response.json();
+            todos = todos.slice(0, 10); // Limit to 10
+            todoState = todos;
+            saveToLocalStorage();
+        } else {
+            todoState = todos;
         }
 
-        const todos = await response.json();
-        // Update our state when we get new data
-        todoState = todos.slice(0, 10);
         return todoState;
     } catch (error) {
-        console.error('Failed to fetch todos:', error);
+        showError('Failed to load todos. Please refresh the page.');
         return [];
+    } finally {
+        hideLoading();
+        updateTodoCount();
     }
 }
+
+
+function filterTodos(filter = currentFilter) {
+    currentFilter = filter;
+
+    document.querySelectorAll('.filter-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.filter === filter);
+    });
+
+    const filteredTodos = todoState.filter(todo => {
+        if (filter === 'active') return !todo.completed;
+        if (filter === 'completed') return todo.completed;
+        return true;
+    });
+
+    renderTodoList(filteredTodos);
+}
+
+function renderTodoList(todos = todoState) {
+    const todoList = document.getElementById('todoList');
+    todoList.innerHTML = '';
+
+    if (todos.length === 0) {
+        todoList.innerHTML = '<p>No todos found.</p>';
+        return;
+    }
+
+    todos.forEach(todo => {
+        const todoElement = createTodoElement(todo);
+        todoList.appendChild(todoElement);
+    });
+}
+
+function updateTodoCount() {
+    const activeCount = todoState.filter(todo => !todo.completed).length;
+    document.getElementById('todoCount').textContent =
+        `${activeCount} item${activeCount !== 1 ? 's' : ''} left`;
+}
+
+
+function clearCompleted() {
+    const completedTodos = todoState.filter(todo => todo.completed);
+    completedTodos.forEach(async todo => await deleteTodo(todo));
+}
+
 
 function createTodoElement(todo) {
     const todoElement = document.createElement('div');
     todoElement.className = `todo-item ${todo.completed ? 'completed' : ''}`;
     todoElement.id = `todo-${todo.id}`;
-
-    // Using semantic HTML: span for text, buttons for actions
     todoElement.innerHTML = `
         <span class="todo-text">${todo.title}</span>
         <div class="todo-actions">
             <button class="btn btn-toggle" data-action="toggle">
                 ${todo.completed ? 'Undo' : 'Complete'}
             </button>
-            <button class="btn btn-delete" data-action="delete">
-                Delete
-            </button>
+            <button class="btn btn-delete" data-action="delete">Delete</button>
         </div>
     `;
-
     return todoElement;
 }
 
-// This function updates a single todo item in the UI
-// Instead of re-rendering the entire list when one todo changes,
-// we just update the one that changed
 function updateTodoElement(todo) {
-		// Find the existing todo element by its ID
     const todoElement = document.getElementById(`todo-${todo.id}`);
     if (todoElement) {
-		    // Create a new element with updated data
-        const newTodoElement = createTodoElement(todo);
-        // Replace the old element with the new one
-        todoElement.replaceWith(newTodoElement);
-        
-        // For example, when we toggle a todo from incomplete to complete:
-				// Before: <div id="todo-1" class="todo-item">...</div>
-				// After:  <div id="todo-1" class="todo-item completed">...</div>
+        const newElement = createTodoElement(todo);
+        todoElement.replaceWith(newElement);
     }
 }
 
-function renderTodoList() {
-    const todoList = document.getElementById('todoList');
-    todoList.innerHTML = '';
+async function createTodo(todoText) {
+    const submitButton = document.getElementById('submitButton');
+    submitButton.disabled = true;
+    submitButton.classList.add('loading');
 
-    if (todoState.length === 0) {
-        todoList.innerHTML = '<p>No todos found.</p>';
-        return;
-    }
-
-    todoState.forEach(todo => {
-        const todoElement = createTodoElement(todo);
-        todoList.appendChild(todoElement);
-    });
-}
-
-// We are using event delegation for better performance
-// Instead of adding event listeners to each todo,
-// we add one listener to the parent element
-// this function is the handler of that event.
-function handleTodoAction(event) {
-		// Find if a button was clicked
-    const button = event.target.closest('button');
-    if (!button) return; // If no button was clicked, do nothing
-    
-		// Get which action to perform from the button's data attribute
-    // <button data-action="toggle">Complete</button>
-    // or
-    // <button data-action="delete">Delete</button>
-    const action = button.dataset.action;
-    // Find which todo item this button belongs to
-    const todoElement = button.closest('.todo-item');
-    // Get the todo ID from the element's ID
-    const todoId = parseInt(todoElement.id.replace('todo-', ''));
-    // Find the actual todo data from our state
-    const todo = todoState.find(t => t.id === todoId);
-
-    if (!todo) return;
-		
-		// Perform the appropriate action
-    if (action === 'toggle') {
-        toggleTodoStatus(todo);
-    } else if (action === 'delete') {
-        deleteTodo(todo);
-    }
-}
-
-// This function changes a todo's completion status
-// For example, marking a todo as done or undoing it
-async function toggleTodoStatus(todo) {
     try {
-        // In a real app, we'd wait for the server response
-        // For JSONPlaceholder, we'll simulate the update
-        // Send request to update todo on server
+        const newTodo = {
+            title: todoText,
+            completed: false,
+            userId: 1
+        };
+
+        const response = await fetch(API_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(newTodo)
+        });
+
+        if (!response.ok) throw new Error('Failed to create todo');
+
+        const createdTodo = await response.json();
+        const simulatedTodo = { ...createdTodo, id: Date.now() };
+
+        todoState.unshift(simulatedTodo);
+        saveToLocalStorage();
+
+        const todoElement = createTodoElement(simulatedTodo);
+        const todoList = document.getElementById('todoList');
+        todoElement.style.opacity = '0';
+        todoList.insertBefore(todoElement, todoList.firstChild);
+        requestAnimationFrame(() => todoElement.style.opacity = '1');
+
+        updateTodoCount();
+        filterTodos();
+    } catch {
+        showError('Failed to create todo. Please try again.');
+    } finally {
+        submitButton.disabled = false;
+        submitButton.classList.remove('loading');
+    }
+}
+
+async function deleteTodo(todo) {
+    const todoElement = document.getElementById(`todo-${todo.id}`);
+    todoElement.classList.add('deleting');
+
+    try {
+        const response = await fetch(`${API_URL}/${todo.id}`, { method: 'DELETE' });
+        if (!response.ok) throw new Error('Failed to delete todo');
+
+        todoState = todoState.filter(t => t.id !== todo.id);
+        saveToLocalStorage();
+
+        todoElement.style.opacity = '0';
+        setTimeout(() => {
+            todoElement.remove();
+            if (todoState.length === 0) {
+                document.getElementById('todoList').innerHTML = '<p>No todos found.</p>';
+            }
+            updateTodoCount();
+        }, 300);
+    } catch {
+        showError('Failed to delete todo. Please try again.');
+        todoElement.classList.remove('deleting');
+    }
+}
+
+async function toggleTodoStatus(todo) {
+    const todoElement = document.getElementById(`todo-${todo.id}`);
+    const toggleButton = todoElement.querySelector('.btn-toggle');
+    toggleButton.disabled = true;
+
+    try {
         const response = await fetch(`${API_URL}/${todo.id}`, {
             method: 'PATCH',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                completed: !todo.completed // Toggle the status
-            })
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ completed: !todo.completed })
         });
 
         if (!response.ok) throw new Error('Failed to update todo');
 
-        // Update local state(data)
-        todo.completed = !todo.completed; // Change from true to false or vice versa
-        // Update the UI to show the new status
+        todo.completed = !todo.completed;
         updateTodoElement(todo);
-
-    } catch (error) {
-        console.error('Error updating todo:', error);
-        alert('Failed to update todo. Please try again.');
+        saveToLocalStorage();
+        updateTodoCount();
+        filterTodos();
+    } catch {
+        showError('Failed to update todo. Please try again.');
+    } finally {
+        toggleButton.disabled = false;
     }
-    // Example:
-	// Before clicking "Complete":
-	// todo = { id: 1, title: "Buy milk", completed: false }
-	// After clicking "Complete":
-	// todo = { id: 1, title: "Buy milk", completed: true }
 }
 
-async function deleteTodo(todo) {
-    try {
-        const response = await fetch(`${API_URL}/${todo.id}`, {
-            method: 'DELETE'
-        });
 
-        if (!response.ok) throw new Error('Failed to delete todo');
+function handleTodoAction(event) {
+    const button = event.target.closest('button');
+    if (!button) return;
 
-        // Update local state
-        todoState = todoState.filter(t => t.id !== todo.id);
-        // Update UI
-        const todoElement = document.getElementById(`todo-${todo.id}`);
-        todoElement.remove();
+    const action = button.dataset.action;
+    const todoElement = button.closest('.todo-item');
+    const todoId = parseInt(todoElement.id.replace('todo-', ''));
+    const todo = todoState.find(t => t.id === todoId);
+    if (!todo) return;
 
-        // Show "no todos" message if all are deleted
-        if (todoState.length === 0) {
-            document.getElementById('todoList').innerHTML = '<p>No todos found.</p>';
+    if (action === 'toggle') toggleTodoStatus(todo);
+    if (action === 'delete') deleteTodo(todo);
+}
+
+function initializeForm() {
+    const form = document.getElementById('todoForm');
+    const input = document.getElementById('todoInput');
+
+    form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const todoText = input.value.trim();
+        if (todoText.length < 3) {
+            alert('Todo must be at least 3 characters long');
+            return;
         }
-
-    } catch (error) {
-        console.error('Error deleting todo:', error);
-        alert('Failed to delete todo. Please try again.');
-    }
+        await createTodo(todoText);
+        input.value = '';
+    });
 }
+
 
 function initializeApp() {
-    // Event delegation - listen for clicks on the todo list container
+    initializeForm();
+
+    document.querySelectorAll('.filter-btn').forEach(btn => {
+        btn.addEventListener('click', () => filterTodos(btn.dataset.filter));
+    });
+
+    document.getElementById('clearCompleted').addEventListener('click', clearCompleted);
+
     document.getElementById('todoList').addEventListener('click', handleTodoAction);
 
-    // Load initial todos
-    fetchTodos().then(renderTodoList);
+    fetchTodos().then(() => {
+        filterTodos('all');
+        updateTodoCount();
+    });
 }
 
 document.addEventListener('DOMContentLoaded', initializeApp);
